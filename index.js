@@ -21,15 +21,29 @@
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
     }
 
-    async function getOrCreateDMChannel(targetUserId) {
+    async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-        for (const channelId in dmChannels) {
-            const channel = dmChannels[channelId];
-            if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
-                return channel.id;
+        
+        if (!isGroup) {
+            // Strict 1-on-1 DM search: channel type 1 and contains only that recipient
+            for (const channelId in dmChannels) {
+                const channel = dmChannels[channelId];
+                if (channel && channel.type === 1 && channel.recipients && channel.recipients.length === 1 && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
+            }
+        } else {
+            // Group DM search (type 3)
+            for (const channelId in dmChannels) {
+                const channel = dmChannels[channelId];
+                if (channel && channel.type === 3 && channel.recipients && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
             }
         }
+
+        // Create new if not found
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
                 return await PrivateChannelActions.openPrivateChannel(targetUserId);
@@ -247,8 +261,9 @@
 
         settings: function() {
             const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
+            const [isGroupDM, setIsGroupDM] = n.React.useState(e.storage.isGroupDM || !1);
             const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput || JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the trade?" },
+                { sender: "other", text: "Hey, are you ready for the trade nig?" },
                 { sender: "me", text: "Yeah, sending it over now." },
                 { sender: "other", text: "Awesome, received! Pleasure doing business." }
             ], null, 2));
@@ -271,13 +286,29 @@
                         helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found in cache (open their profile/DM once first)" : "Long-press a user to grab ID"
                     }),
                     n.React.createElement(A, {
+                        label: "Create as Fake Group DM",
+                        subLabel: "Check this box if you want the conversation routed to a group chat channel layout instead of a direct 1-on-1 DM.",
+                        trailing: n.React.createElement(v.Forms.FormCheckbox, {
+                            value: isGroupDM,
+                            onValueChange: function(val) {
+                                setIsGroupDM(val);
+                                e.storage.isGroupDM = val;
+                            }
+                        }),
+                        onPress: function() {
+                            const newVal = !isGroupDM;
+                            setIsGroupDM(newVal);
+                            e.storage.isGroupDM = newVal;
+                        }
+                    }),
+                    n.React.createElement(A, {
                         label: "Play Out Full Conversation",
-                        subLabel: `${savedCount} messages saved locally | Target: ${otherUserId || "None"}`,
+                        subLabel: `${savedCount} messages saved locally | Target: ${otherUserId || "None"} (${isGroupDM ? "Group" : "DM"})`,
                         onPress: async function() {
                             const targetId = otherUserId || e.storage.otherUserId;
                             if (!targetId) return;
 
-                            const channelId = await getOrCreateDMChannel(targetId);
+                            const channelId = await getOrCreateDMChannel(targetId, isGroupDM);
                             if (!channelId) return;
 
                             let parsedScript;
