@@ -12,6 +12,7 @@
     const R = l.findByProps("sendMessage", "startEditMessage", "editMessage");
     const Navigation = l.findByProps("transitionTo") || n.Navigation;
     
+    const ChannelStore = l.findByStoreName("ChannelStore");
     const PrivateChannelActions = l.findByProps("openPrivateChannel") || l.findByModules("openPrivateChannel")[0];
     
     const editedMessageCache = new Map();
@@ -39,10 +40,23 @@
         if (!targetUserId) return null;
         const currentUser = F.getCurrentUser() || j.getCurrentUser();
         const myId = currentUser?.id;
+        const targetType = isGroup ? 3 : 1;
+        
+        const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
+        for (const channelId in dmChannels) {
+            const channel = dmChannels[channelId];
+            if (channel && channel.recipients) {
+                if (!isGroup && channel.type === 1 && channel.recipients.length === 1 && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
+                if (isGroup && channel.type === 3 && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
+            }
+        }
 
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                // If group is true, pass array. If false, pass STRICTLY the single target user ID string for a 1-on-1 DM.
                 const arg = isGroup ? [targetUserId, myId] : targetUserId;
                 const res = await PrivateChannelActions.openPrivateChannel(arg);
                 const resolvedId = typeof res === "string" ? res : (res?.id || res?.channelId);
@@ -268,9 +282,9 @@
             const savedCount = (e.storage.savedMessages || []).length;
             
             const defaultScript = JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the trade?", delay: 0 },
-                { sender: "me", text: "Yeah, sending it over now.", delay: 1 },
-                { sender: "other", text: "Awesome, received! Pleasure doing business.", delay: 0 }
+                { sender: "other", text: "Hey, are you ready for the trade?" },
+                { sender: "me", text: "Yeah, sending it over now." },
+                { sender: "other", text: "Awesome, received! Pleasure doing business." }
             ], null, 2);
 
             const scriptInput = e.storage.scriptInput || defaultScript;
@@ -321,12 +335,10 @@
                             const parsedScript = parseJSONSafely(e.storage.scriptInput || defaultScript);
                             if (!Array.isArray(parsedScript)) return;
 
-                            let baseTime = Date.now() - (parsedScript.length * 60000);
+                            let baseTime = Date.now() - (parsedScript.length * 2000);
 
                             for (const line of parsedScript) {
-                                const delayMinutes = typeof line.delay === "number" ? line.delay : 0;
-                                baseTime += delayMinutes * 60000;
-                                
+                                baseTime += 2000;
                                 const senderId = line.sender === "me" ? myUserId : otherUserId;
                                 if (!senderId) continue;
 
@@ -337,12 +349,13 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
-                            try {
-                                if (Navigation?.transitionTo) {
-                                    Navigation.transitionTo(`/channels/@me/${channelId}`);
-                                }
-                            } catch (err) {
-                                console.error("Failed to redirect:", err);
+                            // Only auto-redirect if it's a group DM, or keep it optional/stable for 1-on-1 DMs
+                            if (isGroupDM) {
+                                try {
+                                    if (Navigation?.transitionTo) {
+                                        Navigation.transitionTo(`/channels/@me/${channelId}`);
+                                    }
+                                } catch (err) {}
                             }
                         }
                     }),
@@ -352,7 +365,7 @@
                     }, otherUserId ? `Target Status: ${foundOtherUser ? `Found (@${foundOtherUser.username})` : "ID Cached (User not fully loaded in cache)"} | Type: ${isGroupDM ? "Group Chat" : "1-on-1 DM"}` : "Status: No User ID provided yet."),
                     n.React.createElement(f, {
                         title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me', 'other', and 'delay' (in minutes) for each message",
+                        placeholder: "Define 'me' and 'other' script messages",
                         value: scriptInput,
                         onChange: function(val) { e.storage.scriptInput = val || ""; },
                         multiline: !0
