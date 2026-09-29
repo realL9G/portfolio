@@ -26,44 +26,42 @@
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
         const targetType = isGroup ? 3 : 1;
 
-        // 1. Search existing channels matching the exact criteria
+        // Helper to check if a channel has the target user as a recipient (supports both string IDs and user objects)
+        const hasRecipient = (channel) => {
+            if (!channel.recipients) return false;
+            return channel.recipients.some(r => r === targetUserId || r?.id === targetUserId);
+        };
+
+        // 1. Search existing channels in store with exact type and recipient match
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
-            if (channel && channel.type === targetType && channel.recipients && channel.recipients.includes(targetUserId)) {
-                if (!isGroup && channel.recipients.length !== 1) continue; // Ensure strictly 1-on-1
+            if (!channel) continue;
+
+            if (channel.type === targetType && hasRecipient(channel)) {
+                // If 1-on-1 DM, make sure it doesn't have multiple recipients
+                if (!isGroup && channel.recipients.length > 1) continue;
                 return channel.id;
             }
         }
 
-        // 2. If not found, request opening via client actions
+        // 2. Open via private channel actions if not found
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                const arg = isGroup ? [targetUserId] : targetUserId;
-                const res = await PrivateChannelActions.openPrivateChannel(arg);
+                const res = await PrivateChannelActions.openPrivateChannel(targetUserId);
                 const channelId = typeof res === "string" ? res : (res?.id || res?.channelId);
-                
                 if (channelId) {
                     const channel = ChannelStore.getChannel(channelId);
                     if (channel && channel.type === targetType) {
-                        if (!isGroup && channel.recipients?.length !== 1) {
-                            // Fallback scan if it accidentally returned a group
+                        if (!isGroup && channel.recipients?.length > 1) {
+                            // If a group was returned by accident, scan for a true 1-on-1 channel instead
                             for (const cId in dmChannels) {
                                 const c = dmChannels[cId];
-                                if (c && c.type === 1 && c.recipients?.length === 1 && c.recipients.includes(targetUserId)) {
+                                if (c && c.type === 1 && c.recipients?.length === 1 && hasRecipient(c)) {
                                     return c.id;
                                 }
                             }
                         } else {
                             return channel.id;
-                        }
-                    }
-                    if (!isGroup && channel?.type === 3) {
-                        // Skip returning group if 1-on-1 was requested, scan storage/store again
-                        for (const cId in dmChannels) {
-                            const c = dmChannels[cId];
-                            if (c && c.type === 1 && c.recipients?.length === 1 && c.recipients.includes(targetUserId)) {
-                                return c.id;
-                            }
                         }
                     }
                     return channelId;
@@ -73,12 +71,14 @@
             }
         }
 
-        // 3. Final fallback scan
+        // 3. Final fallback scan across store
         const updatedChannels = ChannelStore?.getPrivateChannels?.() || {};
         for (const channelId in updatedChannels) {
             const channel = updatedChannels[channelId];
-            if (channel && channel.type === targetType && channel.recipients?.includes(targetUserId)) {
-                if (!isGroup && channel.recipients.length !== 1) continue;
+            if (!channel) continue;
+
+            if (channel.type === targetType && hasRecipient(channel)) {
+                if (!isGroup && channel.recipients.length > 1) continue;
                 return channel.id;
             }
         }
@@ -294,7 +294,7 @@
             const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
             const [isGroupDM, setIsGroupDM] = n.React.useState(e.storage.isGroupDM || !1);
             const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput || JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the trade?" },
+                { sender: "other", text: "Hey, are you ready for the tradeyyy?" },
                 { sender: "me", text: "Yeah, sending it over now." },
                 { sender: "other", text: "Awesome, received! Pleasure doing business." }
             ], null, 2));
@@ -318,7 +318,7 @@
                     }),
                     n.React.createElement(A, {
                         label: "Create as Fake Group DM",
-                        subLabel: "Check this box if you want the conversation routed to a group chat channel layout instead of a direct 1-on-1 DM.",
+                        subLabel: "Check this box if you want the conversation routed to a group chat channel instead of a direct 1-on-1 DM.",
                         trailing: n.React.createElement(v.Forms.FormCheckbox, {
                             value: isGroupDM,
                             onValueChange: function(val) {
