@@ -40,9 +40,10 @@
         if (!targetUserId) return null;
         const currentUser = F.getCurrentUser() || j.getCurrentUser();
         const myId = currentUser?.id;
-        const targetType = isGroup ? 3 : 1;
         
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
+        
+        // 1. Always look for an existing cached channel first
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
             if (channel && channel.recipients) {
@@ -55,14 +56,28 @@
             }
         }
 
-        if (PrivateChannelActions?.openPrivateChannel) {
+        // 2. If it's a 1-on-1 DM and doesn't exist, we strictly enforce single user ID handling
+        if (!isGroup) {
+            if (PrivateChannelActions?.openPrivateChannel) {
+                try {
+                    const res = await PrivateChannelActions.openPrivateChannel(targetUserId);
+                    const resolvedId = typeof res === "string" ? res : (res?.id || res?.channelId);
+                    if (resolvedId) return resolvedId;
+                } catch (err) {
+                    console.error("Failed to open 1-on-1 private channel:", err);
+                }
+            }
+            return null; // NEVER create a group if isGroup is false
+        }
+
+        // 3. Only if group mode is explicitly TRUE do we pass the array to create a group DM
+        if (isGroup && PrivateChannelActions?.openPrivateChannel) {
             try {
-                const arg = isGroup ? [targetUserId, myId] : targetUserId;
-                const res = await PrivateChannelActions.openPrivateChannel(arg);
+                const res = await PrivateChannelActions.openPrivateChannel([targetUserId, myId]);
                 const resolvedId = typeof res === "string" ? res : (res?.id || res?.channelId);
                 if (resolvedId) return resolvedId;
             } catch (err) {
-                console.error("Failed to open private channel:", err);
+                console.error("Failed to open group private channel:", err);
             }
         }
         return null;
@@ -330,12 +345,14 @@
                             if (!myUserId) return;
 
                             const channelId = await getOrCreateDMChannel(otherUserId, isGroupDM);
-                            if (!channelId) return;
+                            if (!channelId) {
+                                console.error("Could not find or open a valid DM channel without creating a group.");
+                                return;
+                            }
 
                             const parsedScript = parseJSONSafely(e.storage.scriptInput || defaultScript);
                             if (!Array.isArray(parsedScript)) return;
 
-                            // Start conversation 10 minutes before current time
                             let baseTime = Date.now() - (10 * 60000);
 
                             for (const line of parsedScript) {
@@ -352,6 +369,7 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
+                            // Only redirect if it's explicitly a group DM
                             if (isGroupDM) {
                                 try {
                                     if (Navigation?.transitionTo) {
