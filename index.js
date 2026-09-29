@@ -36,38 +36,23 @@
         }
     }
 
-    async function getOrCreateDMChannel(targetUserId, isGroup) {
+    async function getOrCreateGroupChannel(targetUserId) {
         if (!targetUserId) return null;
         const currentUser = F.getCurrentUser() || j.getCurrentUser();
         const myId = currentUser?.id;
         
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-        
-        // 1. Always look for an existing cached channel first
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
-            if (channel && channel.recipients) {
-                if (!isGroup && channel.type === 1 && channel.recipients.length === 1 && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
-                if (isGroup && channel.type === 3 && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
+            if (channel && channel.type === 3 && channel.recipients?.includes(targetUserId)) {
+                return channel.id;
             }
         }
 
-        // 2. If it's a 1-on-1 DM and NOT cached, do NOT call openPrivateChannel (which triggers the group bug). 
-        // Instead, fallback to finding channel via UserStore or let Discord handle it natively via navigation route.
-        if (!isGroup) {
-            return null; 
-        }
-
-        // 3. Only if group mode is explicitly TRUE do we call the group creator
-        if (isGroup && PrivateChannelActions?.openPrivateChannel) {
+        if (PrivateChannelActions?.openPrivateChannel) {
             try {
                 const res = await PrivateChannelActions.openPrivateChannel([targetUserId, myId]);
-                const resolvedId = typeof res === "string" ? res : (res?.id || res?.channelId);
-                if (resolvedId) return resolvedId;
+                return typeof res === "string" ? res : (res?.id || res?.channelId);
             } catch (err) {
                 console.error("Failed to open group private channel:", err);
             }
@@ -330,27 +315,22 @@
                         label: "Play Out Full Conversation",
                         subLabel: `${savedCount} messages saved locally | Mode: ${isGroupDM ? "Group DM" : "Direct Message"}`,
                         onPress: async function() {
-                            if (!otherUserId) return;
-
                             const currentUserObj = F.getCurrentUser() || j.getCurrentUser();
                             const myUserId = currentUserObj?.id;
                             if (!myUserId) return;
 
-                            let channelId = await getOrCreateDMChannel(otherUserId, isGroupDM);
-                            
-                            // If it's a 1-on-1 DM and wasn't pre-cached, just open the user profile or let user navigate manually 
-                            // to prevent Discord from executing the group bug. Or open via user profile route if available.
-                            if (!channelId && !isGroupDM) {
-                                try {
-                                    // Navigate to the user's direct messages route if supported by discord router
-                                    if (Navigation?.transitionTo) {
-                                        Navigation.transitionTo(`/channels/@me`);
-                                    }
-                                } catch {}
-                                return;
-                            }
+                            let channelId = null;
 
-                            if (!channelId) return;
+                            if (!isGroupDM) {
+                                // 1-on-1 mode: Simply use the channel you are CURRENTLY looking at. No lookups, no redirects!
+                                channelId = getCurrentChannelId();
+                                if (!channelId) return;
+                            } else {
+                                // Group mode: fetch or create group DM channel and redirect
+                                if (!otherUserId) return;
+                                channelId = await getOrCreateGroupChannel(otherUserId);
+                                if (!channelId) return;
+                            }
 
                             const parsedScript = parseJSONSafely(e.storage.scriptInput || defaultScript);
                             if (!Array.isArray(parsedScript)) return;
@@ -371,6 +351,7 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
+                            // Only redirect if it's explicitly a group DM
                             if (isGroupDM) {
                                 try {
                                     if (Navigation?.transitionTo) {
