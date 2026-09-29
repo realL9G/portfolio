@@ -1,0 +1,14 @@
+{
+  "name": "L9's Cool Plugin",
+  "description": "Cool Convos",
+  "authors": [
+    {
+      "name": "L9G",
+      "id": "1"
+    }
+  ],
+  "main": "index.js",
+  "vendetta": {
+    "icon": "ic_fluent_plug_24_regular"
+  }
+}
