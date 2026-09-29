@@ -11,7 +11,6 @@
     const j = l.findByStoreName("UserStore");
     const R = l.findByProps("sendMessage", "startEditMessage", "editMessage");
     
-    // Module to look up or create DM channels by User ID
     const ChannelStore = l.findByStoreName("ChannelStore");
     const PrivateChannelActions = l.findByProps("openPrivateChannel") || l.findByModules("openPrivateChannel")[0];
     
@@ -45,7 +44,16 @@
     async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId) {
         const id = messageId || generateSnowflake(customTimestamp || new Date().toISOString());
         try {
-            const user = F.getUser(userId);
+            // Dynamically query user fresh every time to avoid stale profile caching
+            const currentUser = F.getCurrentUser();
+            let user = null;
+            
+            if (userId === currentUser?.id) {
+                user = currentUser;
+            } else {
+                user = F.getUser(userId) || j.getUser(userId);
+            }
+
             const timestamp = customTimestamp || new Date().toISOString();
             const messageData = {
                 id: id,
@@ -53,7 +61,7 @@
                 channel_id: channelId,
                 author: {
                     id: userId,
-                    username: user ? user.username : "FakeUser",
+                    username: user ? user.username : (userId === otherUserIdCache ? "TargetUser" : "User"),
                     discriminator: user ? user.discriminator : "0001",
                     avatar: user ? user.avatar : null,
                     bot: user ? user.bot : !1
@@ -131,6 +139,7 @@
     let channelSelectSub = null;
     let patches = [];
     let dispatchUnpatch = null;
+    let otherUserIdCache = "";
 
     var PluginModule = {
         onLoad() {
@@ -241,7 +250,9 @@
         settings: function() {
             const myUserId = F.getCurrentUser()?.id || "";
             const otherUserId = e.storage.otherUserId || "";
-            const foundOtherUser = otherUserId ? F.getUser(otherUserId) : null;
+            otherUserIdCache = otherUserId;
+            
+            const foundOtherUser = otherUserId ? (F.getUser(otherUserId) || j.getUser(otherUserId)) : null;
             const savedCount = (e.storage.savedMessages || []).length;
             
             const defaultScript = JSON.stringify([
@@ -258,8 +269,11 @@
                         title: "Other User ID",
                         placeholder: "Enter the user ID of the other person",
                         value: otherUserId,
-                        onChange: function(val) { e.storage.otherUserId = val || ""; },
-                        helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found" : "Long-press a user to grab ID"
+                        onChange: function(val) { 
+                            e.storage.otherUserId = val || ""; 
+                            otherUserIdCache = val || "";
+                        },
+                        helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found in cache (open their profile/DM once first)" : "Long-press a user to grab ID"
                     }),
                     n.React.createElement(f, {
                         title: "Conversation Script (JSON Table)",
@@ -274,7 +288,6 @@
                         onPress: async function() {
                             if (!otherUserId) return;
 
-                            // Automatically look up or create the DM channel for this User ID
                             const channelId = await getOrCreateDMChannel(otherUserId);
                             if (!channelId) return;
 
