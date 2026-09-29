@@ -282,9 +282,9 @@
             const savedCount = (e.storage.savedMessages || []).length;
             
             const defaultScript = JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the trade?" },
-                { sender: "me", text: "Yeah, sending it over now." },
-                { sender: "other", text: "Awesome, received! Pleasure doing business." }
+                { sender: "other", text: "Hey, are you ready for the trade?", delay: 0 },
+                { sender: "me", text: "Yeah, sending it over now.", delay: 1 },
+                { sender: "other", text: "Awesome, received! Pleasure doing business.", delay: 2 }
             ], null, 2);
 
             const scriptInput = e.storage.scriptInput || defaultScript;
@@ -335,10 +335,13 @@
                             const parsedScript = parseJSONSafely(e.storage.scriptInput || defaultScript);
                             if (!Array.isArray(parsedScript)) return;
 
-                            let baseTime = Date.now() - (parsedScript.length * 2000);
+                            // Start conversation 10 minutes before current time
+                            let baseTime = Date.now() - (10 * 60000);
 
                             for (const line of parsedScript) {
-                                baseTime += 2000;
+                                const delayMinutes = typeof line.delay === "number" ? line.delay : 0;
+                                baseTime += delayMinutes * 60000;
+
                                 const senderId = line.sender === "me" ? myUserId : otherUserId;
                                 if (!senderId) continue;
 
@@ -349,7 +352,6 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
-                            // Only auto-redirect if it's a group DM, or keep it optional/stable for 1-on-1 DMs
                             if (isGroupDM) {
                                 try {
                                     if (Navigation?.transitionTo) {
@@ -365,7 +367,7 @@
                     }, otherUserId ? `Target Status: ${foundOtherUser ? `Found (@${foundOtherUser.username})` : "ID Cached (User not fully loaded in cache)"} | Type: ${isGroupDM ? "Group Chat" : "1-on-1 DM"}` : "Status: No User ID provided yet."),
                     n.React.createElement(f, {
                         title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me' and 'other' script messages",
+                        placeholder: "Define 'me', 'other', and 'delay' (in minutes) for each message",
                         value: scriptInput,
                         onChange: function(val) { e.storage.scriptInput = val || ""; },
                         multiline: !0
