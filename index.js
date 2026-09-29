@@ -12,7 +12,6 @@
     const R = l.findByProps("sendMessage", "startEditMessage", "editMessage");
     const Navigation = l.findByProps("transitionTo") || n.Navigation;
     
-    const ChannelStore = l.findByStoreName("ChannelStore");
     const PrivateChannelActions = l.findByProps("openPrivateChannel") || l.findByModules("openPrivateChannel")[0];
     
     const editedMessageCache = new Map();
@@ -22,7 +21,6 @@
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
     }
 
-    // Safe JSON parser that strips trailing commas so user typos never break it
     function parseJSONSafely(str) {
         try {
             return JSON.parse(str);
@@ -31,7 +29,7 @@
                 const cleaned = str.replace(/,\s*([\]}])/g, '$1');
                 return JSON.parse(cleaned);
             } catch (err2) {
-                console.error("Failed to parse conversation script JSON:", err2);
+                console.error("Failed to parse script JSON:", err2);
                 return null;
             }
         }
@@ -39,25 +37,13 @@
 
     async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
-        let dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-        
-        // Check existing cached channels first
-        for (const channelId in dmChannels) {
-            const channel = dmChannels[channelId];
-            if (channel && channel.recipients) {
-                if (!isGroup && channel.type === 1 && channel.recipients.length === 1 && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
-                if (isGroup && channel.type === 3 && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
-            }
-        }
+        const currentUser = F.getCurrentUser() || j.getCurrentUser();
+        const myId = currentUser?.id;
 
-        // Open via native action if not cached
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                const arg = isGroup ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
+                // If group is true, pass array. If false, pass STRICTLY the single target user ID string for a 1-on-1 DM.
+                const arg = isGroup ? [targetUserId, myId] : targetUserId;
                 const res = await PrivateChannelActions.openPrivateChannel(arg);
                 const resolvedId = typeof res === "string" ? res : (res?.id || res?.channelId);
                 if (resolvedId) return resolvedId;
@@ -71,7 +57,7 @@
     async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId) {
         const id = messageId || generateSnowflake(customTimestamp || new Date().toISOString());
         try {
-            const currentUser = F.getCurrentUser();
+            const currentUser = F.getCurrentUser() || j.getCurrentUser();
             let user = null;
             
             if (userId === currentUser?.id) {
@@ -278,7 +264,6 @@
             const [isGroupDM, setIsGroupDM] = n.React.useState(e.storage.isGroupDM || false);
             
             otherUserIdCache = otherUserId;
-            const myUserId = F.getCurrentUser()?.id || "";
             const foundOtherUser = otherUserId ? (F.getUser(otherUserId) || j.getUser(otherUserId)) : null;
             const savedCount = (e.storage.savedMessages || []).length;
             
@@ -325,6 +310,10 @@
                         subLabel: `${savedCount} messages saved locally | Mode: ${isGroupDM ? "Group DM" : "Direct Message"}`,
                         onPress: async function() {
                             if (!otherUserId) return;
+
+                            const currentUserObj = F.getCurrentUser() || j.getCurrentUser();
+                            const myUserId = currentUserObj?.id;
+                            if (!myUserId) return;
 
                             const channelId = await getOrCreateDMChannel(otherUserId, isGroupDM);
                             if (!channelId) return;
