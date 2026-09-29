@@ -25,21 +25,30 @@
     async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-        const targetType = isGroup ? 3 : 1;
-
+        
+        // Strict matching: Type 1 for 1-on-1 DM (must contain target user and only 1 recipient), Type 3 for Group DM
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
-            if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
-                if (channel.type === targetType) return channel.id;
+            if (channel && channel.recipients) {
+                if (!isGroup && channel.type === 1 && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
+                if (isGroup && channel.type === 3 && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
             }
         }
 
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                // If group is false, passing string ID strictly opens a 1-on-1 DM container
-                const channelArg = isGroup ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
-                const res = await PrivateChannelActions.openPrivateChannel(channelArg);
-                return typeof res === "string" ? res : (res?.id || res?.channelId || null);
+                if (isGroup) {
+                    const res = await PrivateChannelActions.openPrivateChannel([targetUserId, F.getCurrentUser()?.id]);
+                    return typeof res === "string" ? res : (res?.id || res?.channelId || null);
+                } else {
+                    // Strictly force 1-on-1 DM resolution using single user string parameter
+                    const res = await PrivateChannelActions.openPrivateChannel(targetUserId);
+                    return typeof res === "string" ? res : (res?.id || res?.channelId || null);
+                }
             } catch (err) {
                 console.error("Failed to open private channel:", err);
                 return null;
