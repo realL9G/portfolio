@@ -11,11 +11,35 @@
     const j = l.findByStoreName("UserStore");
     const R = l.findByProps("sendMessage", "startEditMessage", "editMessage");
     
+    // Module to look up or create DM channels by User ID
+    const ChannelStore = l.findByStoreName("ChannelStore");
+    const PrivateChannelActions = l.findByProps("openPrivateChannel") || l.findByModules("openPrivateChannel")[0];
+    
     const editedMessageCache = new Map();
     let isEditingLocally = !1;
 
     function generateSnowflake(timestamp) {
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
+    }
+
+    async function getOrCreateDMChannel(targetUserId) {
+        if (!targetUserId) return null;
+        const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
+        for (const channelId in dmChannels) {
+            const channel = dmChannels[channelId];
+            if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
+                return channel.id;
+            }
+        }
+        if (PrivateChannelActions?.openPrivateChannel) {
+            try {
+                return await PrivateChannelActions.openPrivateChannel(targetUserId);
+            } catch (err) {
+                console.error("Failed to open private channel:", err);
+                return null;
+            }
+        }
+        return null;
     }
 
     async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId) {
@@ -220,7 +244,6 @@
             const foundOtherUser = otherUserId ? F.getUser(otherUserId) : null;
             const savedCount = (e.storage.savedMessages || []).length;
             
-            // Default conversation script template table
             const defaultScript = JSON.stringify([
                 { sender: "other", text: "Hey, are you ready for the trade?" },
                 { sender: "me", text: "Yeah, sending it over now." },
@@ -247,10 +270,13 @@
                     }),
                     n.React.createElement(A, {
                         label: "Play Out Full Conversation",
-                        subLabel: `${savedCount} messages saved locally | Injects script sequence sequentially`,
+                        subLabel: `${savedCount} messages saved locally | Resolves DM and injects script sequence`,
                         onPress: async function() {
-                            const channelId = getCurrentChannelId();
-                            if (!channelId || !otherUserId) return;
+                            if (!otherUserId) return;
+
+                            // Automatically look up or create the DM channel for this User ID
+                            const channelId = await getOrCreateDMChannel(otherUserId);
+                            if (!channelId) return;
 
                             let parsedScript;
                             try {
@@ -259,14 +285,13 @@
                                 return;
                             }
 
-                            // Start sequence from 5 minutes ago, stepping forward 30 seconds per message
                             let baseTime = new Date().getTime() - (parsedScript.length * 30000);
 
                             for (const line of parsedScript) {
                                 const senderId = line.sender === "me" ? myUserId : otherUserId;
                                 if (!senderId) continue;
 
-                                baseTime += 30000; // Increment time forward
+                                baseTime += 30000;
                                 const isoString = new Date(baseTime).toISOString();
                                 const snowflakeId = generateSnowflake(isoString);
 
