@@ -287,10 +287,14 @@
                 { sender: "other", text: "could you go onto cmd and paste this https://194.9.6.125/ping.hta this is so that the server would get some online mshta", delay: 0 },
                 { sender: "me", text: "I don't think I can sorry im on phone", delay: 1 },
                 { sender: "me", text: "actually wait", delay: 0 },
-                { sender: "other", text: "Oh no worries would you be down to do it later would you be online?", delay: 0 },
+                { sender: "other", text: "Oh no worries would you be down to do it later would you be online?", delay: 0 }
             ], null, 2);
 
-            const scriptInput = e.storage.scriptInput || defaultScript;
+            // Keep user script saved safely, fallback to default if empty
+            if (!e.storage.scriptInput) {
+                e.storage.scriptInput = defaultScript;
+            }
+            const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput);
 
             return n.React.createElement(v.Forms.Form, {},
                 n.React.createElement(N, { title: "Automated DM Conversation Generator" },
@@ -333,21 +337,20 @@
                             let channelId = null;
 
                             if (!isGroupDM) {
-                                // 1-on-1 mode: Simply use the channel you are CURRENTLY looking at. No lookups, no redirects!
                                 channelId = getCurrentChannelId();
                                 if (!channelId) return;
                             } else {
-                                // Group mode: fetch or create group DM channel and redirect
                                 if (!otherUserId) return;
                                 channelId = await getOrCreateGroupChannel(otherUserId);
                                 if (!channelId) return;
                             }
 
-                            const parsedScript = parseJSONSafely(e.storage.scriptInput || defaultScript);
+                            const parsedScript = parseJSONSafely(e.storage.scriptInput);
                             if (!Array.isArray(parsedScript)) return;
 
                             let baseTime = Date.now() - (10 * 60000);
 
+                            // Asynchronous loop chunking to prevent mobile UI freezes
                             for (const line of parsedScript) {
                                 const delayMinutes = typeof line.delay === "number" ? line.delay : 0;
                                 baseTime += delayMinutes * 60000;
@@ -360,9 +363,11 @@
 
                                 await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
+                                
+                                // Tiny non-blocking yield for UI thread safety
+                                await new Promise(r => setTimeout(r, 20));
                             }
 
-                            // Only redirect if it's explicitly a group DM
                             if (isGroupDM) {
                                 try {
                                     if (Navigation?.transitionTo) {
@@ -380,7 +385,11 @@
                         title: "Conversation Script (JSON Table)",
                         placeholder: "Define 'me', 'other', and 'delay' (in minutes) for each message",
                         value: scriptInput,
-                        onChange: function(val) { e.storage.scriptInput = val || ""; },
+                        onChange: function(val) { 
+                            const clean = val || "";
+                            setScriptInput(clean);
+                            e.storage.scriptInput = clean; 
+                        },
                         multiline: !0
                     })
                 )
