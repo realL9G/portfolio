@@ -18,9 +18,10 @@
     const editedMessageCache = new Map();
     let isEditingLocally = !1;
 
-    function generateSnowflake(timestamp, index) {
-        const timeVal = new Date(timestamp).getTime();
-        return ((timeVal - 14200704e5) * 4194304 + index).toString();
+    function generateStrictSnowflake(baseTimeMs, index) {
+        // Guaranteed strictly increasing snowflake based on array index position
+        const discordEpoch = 1420070400000;
+        return (((baseTimeMs + index) - discordEpoch) * 4194304).toString();
     }
 
     function parseJSONSafely(str) {
@@ -146,7 +147,7 @@
         saved.filter(function(msg) {
             return msg.channelId === channelId;
         }).sort(function(a, b) {
-            return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+            return BigInt(a.id) > BigInt(b.id) ? 1 : -1;
         }).forEach(function(msg) {
             injectFakeMessage(msg.channelId, msg.userId, msg.content, msg.timestamp, msg.id);
         });
@@ -350,27 +351,26 @@
                             const parsedScript = parseJSONSafely(e.storage.scriptInput);
                             if (!Array.isArray(parsedScript)) return;
 
-                            let baseTime = Date.now() - (parsedScript.length * 2 * 60000);
+                            // Start base time far enough back so all messages map out sequentially in the past
+                            let baseTimeMs = Date.now() - (parsedScript.length * 120000);
 
                             for (let i = 0; i < parsedScript.length; i++) {
                                 const line = parsedScript[i];
                                 
-                                // Enforce a minimum 2-minute gap per message block if delay is 0, 
-                                // so Discord separates consecutive messages from the same author into individual blocks.
+                                // Force each message to progress forward cleanly by 2 minutes minimum + script delay
                                 const explicitDelay = typeof line.delay === "number" ? line.delay : 0;
-                                const gapMinutes = Math.max(explicitDelay, 2); 
-                                baseTime += gapMinutes * 60000;
+                                baseTimeMs += (Math.max(explicitDelay, 1) * 60000);
 
                                 const senderId = line.sender === "me" ? myUserId : otherUserId;
                                 if (!senderId) continue;
 
-                                const isoString = new Date(baseTime).toISOString();
-                                const snowflakeId = generateSnowflake(baseTime, i);
+                                const isoString = new Date(baseTimeMs).toISOString();
+                                const snowflakeId = generateStrictSnowflake(baseTimeMs, i);
 
                                 await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                                 
-                                await new Promise(r => setTimeout(r, 25));
+                                await new Promise(r => setTimeout(r, 20));
                             }
 
                             if (isGroupDM) {
