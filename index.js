@@ -10,6 +10,7 @@
     const G = l.findByStoreName("MessageStore");
     const j = l.findByStoreName("UserStore");
     const R = l.findByProps("sendMessage", "startEditMessage", "editMessage");
+    const Navigation = l.findByProps("transitionTo") || n.Navigation;
     
     const ChannelStore = l.findByStoreName("ChannelStore");
     const PrivateChannelActions = l.findByProps("openPrivateChannel") || l.findByModules("openPrivateChannel")[0];
@@ -28,17 +29,13 @@
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
             if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
-                // If group option is off, make sure we match a 1-on-1 DM (type 1 or single recipient)
                 if (!isGroup && channel.type === 1) return channel.id;
-                // If group option is on, match group DM (type 3)
                 if (isGroup && channel.type === 3) return channel.id;
             }
         }
 
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                // Native openPrivateChannel with a string always opens a 1-on-1 DM
-                // Passing an array creates/opens a group DM layout
                 const channelArg = isGroup ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
                 const res = await PrivateChannelActions.openPrivateChannel(channelArg);
                 return typeof res === "string" ? res : (res?.id || res?.channelId || null);
@@ -297,13 +294,6 @@
                             e.storage.isGroupDM = !isGroupDM;
                         }
                     }),
-                    n.React.createElement(f, {
-                        title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me' and 'other' script messages",
-                        value: scriptInput,
-                        onChange: function(val) { e.storage.scriptInput = val || ""; },
-                        multiline: !0
-                    }),
                     n.React.createElement(A, {
                         label: "Play Out Full Conversation",
                         subLabel: `${savedCount} messages saved locally | Resolves DM and injects script sequence`,
@@ -333,7 +323,23 @@
                                 await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
+
+                            // Redirect to the channel immediately after generating
+                            try {
+                                if (Navigation?.transitionTo) {
+                                    Navigation.transitionTo(`/channels/@me/${channelId}`);
+                                }
+                            } catch (err) {
+                                console.error("Failed to redirect:", err);
+                            }
                         }
+                    }),
+                    n.React.createElement(f, {
+                        title: "Conversation Script (JSON Table)",
+                        placeholder: "Define 'me' and 'other' script messages",
+                        value: scriptInput,
+                        onChange: function(val) { e.storage.scriptInput = val || ""; },
+                        multiline: !0
                     })
                 )
             );
