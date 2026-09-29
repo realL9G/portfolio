@@ -2,7 +2,7 @@
   "name": "Fake",
   "description": "vendetta plugin",
   "authors": [{"name": "clock.wrks", "id": "143804501852291072"}],
-  "main": "https://pastebin.com/raw/TSuiGj24",
+  "main": "index.js",
   "vendetta": {
     "icon": "ic_badge_staff"
   }
