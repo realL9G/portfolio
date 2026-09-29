@@ -1,7 +1,7 @@
 (function(U, n, l, v, e, y, B, k) {
     "use strict";
 
-    const { FormSection: N, FormInput: f, FormRow: A, FormRadio: P } = v.Forms;
+    const { FormSection: N, FormInput: f, FormRow: A, FormSwitch: S } = v.Forms;
     const F = l.findByProps("getCurrentUser", "getUser");
     const O = l.findByProps("getChannel", "getChannelId");
     const $ = l.findByProps("getChannelId", "getLastSelectedChannelId");
@@ -22,12 +22,10 @@
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
     }
 
-    async function getOrCreateDMChannel(targetUserId, mode) {
+    async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-        
-        // mode: "dm" or "group"
-        const targetType = mode === "group" ? 3 : 1;
+        const targetType = isGroup ? 3 : 1;
 
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
@@ -38,8 +36,8 @@
 
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                // If mode is DM, pass strictly the string ID. If group, pass the array.
-                const channelArg = mode === "group" ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
+                // If group is false, passing string ID strictly opens a 1-on-1 DM container
+                const channelArg = isGroup ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
                 const res = await PrivateChannelActions.openPrivateChannel(channelArg);
                 return typeof res === "string" ? res : (res?.id || res?.channelId || null);
             } catch (err) {
@@ -256,11 +254,11 @@
         },
 
         settings: function() {
-            const [channelMode, setChannelMode] = n.React.useState(e.storage.channelMode || "dm");
-            const myUserId = F.getCurrentUser()?.id || "";
-            const otherUserId = e.storage.otherUserId || "";
-            otherUserIdCache = otherUserId;
+            const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
+            const [isGroupDM, setIsGroupDM] = n.React.useState(e.storage.isGroupDM || false);
             
+            otherUserIdCache = otherUserId;
+            const myUserId = F.getCurrentUser()?.id || "";
             const foundOtherUser = otherUserId ? (F.getUser(otherUserId) || j.getUser(otherUserId)) : null;
             const savedCount = (e.storage.savedMessages || []).length;
             
@@ -279,31 +277,36 @@
                         placeholder: "Enter the user ID of the other person",
                         value: otherUserId,
                         onChange: function(val) { 
-                            e.storage.otherUserId = val || ""; 
-                            otherUserIdCache = val || "";
+                            const cleanVal = val || "";
+                            setOtherUserId(cleanVal);
+                            e.storage.otherUserId = cleanVal;
+                            otherUserIdCache = cleanVal;
                         },
-                        helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found in cache (open their profile/DM once first)" : "Long-press a user to grab ID"
+                        helperText: "Long-press any user to copy their ID and paste it here."
                     }),
-                    n.React.createElement(N, { title: "Channel Mode" },
-                        n.React.createElement(P, {
-                            options: [
-                                { name: "Direct Message (1-on-1)", value: "dm", desc: "Open or use a standard 1-on-1 DM channel." },
-                                { name: "Group DM", value: "group", desc: "Route or create a group chat channel instead." }
-                            ],
-                            selected: channelMode,
-                            onSelect: function(val) {
-                                setChannelMode(val);
-                                e.storage.channelMode = val;
+                    n.React.createElement(A, {
+                        label: "Create as Group DM",
+                        subLabel: "Toggle on to target a Group DM instead of a 1-on-1 Direct Message.",
+                        trailing: n.React.createElement(S, {
+                            value: isGroupDM,
+                            onValueChange: function(val) {
+                                setIsGroupDM(val);
+                                e.storage.isGroupDM = val;
                             }
-                        })
-                    ),
+                        }),
+                        onPress: function() {
+                            const nextVal = !isGroupDM;
+                            setIsGroupDM(nextVal);
+                            e.storage.isGroupDM = nextVal;
+                        }
+                    }),
                     n.React.createElement(A, {
                         label: "Play Out Full Conversation",
-                        subLabel: `${savedCount} messages saved locally | Generates and redirects`,
+                        subLabel: `${savedCount} messages saved locally | Mode: ${isGroupDM ? "Group DM" : "Direct Message"}`,
                         onPress: async function() {
                             if (!otherUserId) return;
 
-                            const channelId = await getOrCreateDMChannel(otherUserId, channelMode);
+                            const channelId = await getOrCreateDMChannel(otherUserId, isGroupDM);
                             if (!channelId) return;
 
                             let parsedScript;
@@ -336,6 +339,10 @@
                             }
                         }
                     }),
+                    n.React.createElement(v.Forms.FormText, {
+                        type: "description",
+                        style: { marginBottom: 16, paddingLeft: 8, color: "#b9bbbe" }
+                    }, otherUserId ? `Target Status: ${foundOtherUser ? `Found (@${foundOtherUser.username})` : "ID Cached (User not fully loaded in cache)"} | Type: ${isGroupDM ? "Group Chat" : "1-on-1 DM"}` : "Status: No User ID provided yet."),
                     n.React.createElement(f, {
                         title: "Conversation Script (JSON Table)",
                         placeholder: "Define 'me' and 'other' script messages",
