@@ -18,8 +18,10 @@
     const editedMessageCache = new Map();
     let isEditingLocally = !1;
 
-    function generateSnowflake(timestamp) {
-        return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
+    function generateSnowflake(timestamp, index) {
+        // Add index offset to ensure unique, strictly increasing snowflakes for rapid messages
+        const timeVal = new Date(timestamp).getTime();
+        return ((timeVal - 14200704e5) * 4194304 + index).toString();
     }
 
     function parseJSONSafely(str) {
@@ -61,7 +63,6 @@
     }
 
     async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId) {
-        const id = messageId || generateSnowflake(customTimestamp || new Date().toISOString());
         try {
             const currentUser = F.getCurrentUser() || j.getCurrentUser();
             let user = null;
@@ -74,7 +75,7 @@
 
             const timestamp = customTimestamp || new Date().toISOString();
             const messageData = {
-                id: id,
+                id: messageId,
                 type: 0,
                 channel_id: channelId,
                 author: {
@@ -107,7 +108,7 @@
             try {
                 n.FluxDispatcher.dispatch({
                     type: "CHANNEL_UPDATE",
-                    channel: { id: channelId, last_message_id: id }
+                    channel: { id: channelId, last_message_id: messageId }
                 });
             } catch {}
 
@@ -115,7 +116,7 @@
                 n.FluxDispatcher.dispatch({
                     type: "MESSAGE_ACK",
                     channelId: channelId,
-                    messageId: id,
+                    messageId: messageId,
                     manual: !0,
                     immediate: !0
                 });
@@ -142,8 +143,12 @@
     }
 
     function reloadSavedMessagesForChannel(channelId) {
-        (e.storage.savedMessages || []).filter(function(msg) {
+        const saved = e.storage.savedMessages || [];
+        // Sort saved messages chronologically by timestamp before reloading
+        saved.filter(function(msg) {
             return msg.channelId === channelId;
+        }).sort(function(a, b) {
+            return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
         }).forEach(function(msg) {
             injectFakeMessage(msg.channelId, msg.userId, msg.content, msg.timestamp, msg.id);
         });
@@ -290,7 +295,6 @@
                 { sender: "other", text: "Oh no worries would you be down to do it later would you be online?", delay: 0 }
             ], null, 2);
 
-            // Keep user script saved safely, fallback to default if empty
             if (!e.storage.scriptInput) {
                 e.storage.scriptInput = defaultScript;
             }
@@ -350,8 +354,8 @@
 
                             let baseTime = Date.now() - (10 * 60000);
 
-                            // Asynchronous loop chunking to prevent mobile UI freezes
-                            for (const line of parsedScript) {
+                            for (let i = 0; i < parsedScript.length; i++) {
+                                const line = parsedScript[i];
                                 const delayMinutes = typeof line.delay === "number" ? line.delay : 0;
                                 baseTime += delayMinutes * 60000;
 
@@ -359,13 +363,12 @@
                                 if (!senderId) continue;
 
                                 const isoString = new Date(baseTime).toISOString();
-                                const snowflakeId = generateSnowflake(isoString);
+                                const snowflakeId = generateSnowflake(baseTime, i);
 
                                 await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                                 
-                                // Tiny non-blocking yield for UI thread safety
-                                await new Promise(r => setTimeout(r, 20));
+                                await new Promise(r => setTimeout(r, 25));
                             }
 
                             if (isGroupDM) {
