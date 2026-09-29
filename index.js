@@ -11,9 +11,6 @@
     const j = l.findByStoreName("UserStore");
     const R = l.findByProps("sendMessage", "startEditMessage", "editMessage");
     
-    // Discord Native Toast module for mobile popups
-    const Toasts = l.findByProps("showToast", "openToast") || l.findByModules("showToast")[0];
-
     const ChannelStore = l.findByStoreName("ChannelStore");
     const PrivateChannelActions = l.findByProps("openPrivateChannel") || l.findByModules("openPrivateChannel")[0];
     
@@ -22,20 +19,6 @@
 
     function generateSnowflake(timestamp) {
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
-    }
-
-    function showNotification(message) {
-        try {
-            if (Toasts?.showToast) {
-                Toasts.showToast({
-                    message: message,
-                    id: Date.now()
-                });
-                return;
-            }
-        } catch {}
-        // Fallback console log if native toast isn't available
-        console.log("[DM Generator]: " + message);
     }
 
     async function getOrCreateDMChannel(targetUserId) {
@@ -266,7 +249,7 @@
             const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
             const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput || JSON.stringify([
                 { sender: "other", text: "Hey, are you ready for the trade?" },
-                { sender: "me", text: "Yeah, sending it over now. nigha" },
+                { sender: "me", text: "Yeah, sending it over now." },
                 { sender: "other", text: "Awesome, received! Pleasure doing business." }
             ], null, 2));
 
@@ -292,22 +275,15 @@
                         subLabel: `${savedCount} messages saved locally | Target: ${otherUserId || "None"}`,
                         onPress: async function() {
                             const targetId = otherUserId || e.storage.otherUserId;
-                            if (!targetId) {
-                                showNotification("Error: Please provide a target User ID first.");
-                                return;
-                            }
+                            if (!targetId) return;
 
                             const channelId = await getOrCreateDMChannel(targetId);
-                            if (!channelId) {
-                                showNotification("Error: Could not resolve DM channel for target ID.");
-                                return;
-                            }
+                            if (!channelId) return;
 
                             let parsedScript;
                             try {
                                 parsedScript = JSON.parse(scriptInput || e.storage.scriptInput);
                             } catch (err) {
-                                showNotification("Error: Invalid JSON script format.");
                                 return;
                             }
 
@@ -325,8 +301,6 @@
                                 await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
-
-                            showNotification("Conversation playback complete!");
                         }
                     }),
                     n.React.createElement(f, {
