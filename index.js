@@ -24,34 +24,36 @@
 
     async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
-        const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
+        const targetType = isGroup ? 3 : 1;
         
-        // Strict matching: Type 1 for 1-on-1 DM (must contain target user and only 1 recipient), Type 3 for Group DM
+        // 1. Check existing cached channels first
+        let dmChannels = ChannelStore?.getPrivateChannels?.() || {};
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
-            if (channel && channel.recipients) {
-                if (!isGroup && channel.type === 1 && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
-                if (isGroup && channel.type === 3 && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
+            if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
+                if (channel.type === targetType) return channel.id;
             }
         }
 
+        // 2. Trigger native open action if not found
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
                 if (isGroup) {
-                    const res = await PrivateChannelActions.openPrivateChannel([targetUserId, F.getCurrentUser()?.id]);
-                    return typeof res === "string" ? res : (res?.id || res?.channelId || null);
+                    await PrivateChannelActions.openPrivateChannel([targetUserId, F.getCurrentUser()?.id]);
                 } else {
-                    // Strictly force 1-on-1 DM resolution using single user string parameter
-                    const res = await PrivateChannelActions.openPrivateChannel(targetUserId);
-                    return typeof res === "string" ? res : (res?.id || res?.channelId || null);
+                    await PrivateChannelActions.openPrivateChannel(targetUserId);
+                }
+                
+                // 3. Re-scan channel store immediately to fetch the newly created channel ID
+                dmChannels = ChannelStore?.getPrivateChannels?.() || {};
+                for (const channelId in dmChannels) {
+                    const channel = dmChannels[channelId];
+                    if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
+                        if (channel.type === targetType) return channel.id;
+                    }
                 }
             } catch (err) {
                 console.error("Failed to open private channel:", err);
-                return null;
             }
         }
         return null;
@@ -272,9 +274,9 @@
             const savedCount = (e.storage.savedMessages || []).length;
             
             const defaultScript = JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the trade?" },
-                { sender: "me", text: "Yeah, sending it over now." },
-                { sender: "other", text: "Awesome, received! Pleasure doing business." }
+                { sender: "other", text: "Hey, are you ready for the trade?", delay: 0 },
+                { sender: "me", text: "Yeah, sending it over now.", delay: 1 },
+                { sender: "other", text: "Awesome, received! Pleasure doing business.", delay: 0 }
             ], null, 2);
 
             const scriptInput = e.storage.scriptInput || defaultScript;
@@ -325,13 +327,16 @@
                                 return;
                             }
 
-                            let baseTime = new Date().getTime() - (parsedScript.length * 30000);
+                            // Calculate timestamps dynamically based on the 'delay' property (in minutes)
+                            let baseTime = Date.now() - (parsedScript.length * 60000);
 
                             for (const line of parsedScript) {
+                                const delayMinutes = typeof line.delay === "number" ? line.delay : 0;
+                                baseTime += delayMinutes * 60000;
+                                
                                 const senderId = line.sender === "me" ? myUserId : otherUserId;
                                 if (!senderId) continue;
 
-                                baseTime += 30000;
                                 const isoString = new Date(baseTime).toISOString();
                                 const snowflakeId = generateSnowflake(isoString);
 
@@ -354,7 +359,7 @@
                     }, otherUserId ? `Target Status: ${foundOtherUser ? `Found (@${foundOtherUser.username})` : "ID Cached (User not fully loaded in cache)"} | Type: ${isGroupDM ? "Group Chat" : "1-on-1 DM"}` : "Status: No User ID provided yet."),
                     n.React.createElement(f, {
                         title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me' and 'other' script messages",
+                        placeholder: "Define 'me', 'other', and 'delay' (in minutes) for each message",
                         value: scriptInput,
                         onChange: function(val) { e.storage.scriptInput = val || ""; },
                         multiline: !0
