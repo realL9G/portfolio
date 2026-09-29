@@ -266,7 +266,7 @@
             const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
             const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput || JSON.stringify([
                 { sender: "other", text: "Hey, are you ready for the trade?" },
-                { sender: "me", text: "Yeah, sending it over now." },
+                { sender: "me", text: "Yeah, sending it over now. nigha" },
                 { sender: "other", text: "Awesome, received! Pleasure doing business." }
             ], null, 2));
 
