@@ -1,8 +1,13 @@
 {
-  "name": "Fake",
-  "description": "vendetta plugin",
-  "authors": [{"name": "clock.wrks", "id": "143804501852291072"}],
+  "name": "Fake Message Generator",
+  "description": "Simulates automated conversation scripts.",
+  "authors": [
+    {
+      "name": "clock.wrks"
+    }
+  ],
   "main": "index.js",
+  "version": "1.0.0",
   "vendetta": {
     "icon": "ic_badge_staff"
   }
