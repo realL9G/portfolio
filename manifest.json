@@ -1,14 +1,10 @@
 {
-  "name": "rawr",
-  "description": "A plugin that removes the `X blocked or ignored message/s` prompt and replies to the blocked or ignored messages from chat.",
+  "name": "L9's Cool Plugin",
+  "description": "Cool Convo Plugin",
   "authors": [
     {
-      "name": "Zykrah",
-      "id": "543614592291700748"
-    },
-    {
-      "name": "シグマ siguma",
-      "id": "737597276339437578"
+      "name": "L9G",
+      "id": "1"
     }
   ],
   "main": "index.js",
