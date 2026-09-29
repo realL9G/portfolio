@@ -19,7 +19,6 @@
     let isEditingLocally = !1;
 
     function generateSnowflake(timestamp, index) {
-        // Add index offset to ensure unique, strictly increasing snowflakes for rapid messages
         const timeVal = new Date(timestamp).getTime();
         return ((timeVal - 14200704e5) * 4194304 + index).toString();
     }
@@ -144,7 +143,6 @@
 
     function reloadSavedMessagesForChannel(channelId) {
         const saved = e.storage.savedMessages || [];
-        // Sort saved messages chronologically by timestamp before reloading
         saved.filter(function(msg) {
             return msg.channelId === channelId;
         }).sort(function(a, b) {
@@ -352,12 +350,16 @@
                             const parsedScript = parseJSONSafely(e.storage.scriptInput);
                             if (!Array.isArray(parsedScript)) return;
 
-                            let baseTime = Date.now() - (10 * 60000);
+                            let baseTime = Date.now() - (parsedScript.length * 2 * 60000);
 
                             for (let i = 0; i < parsedScript.length; i++) {
                                 const line = parsedScript[i];
-                                const delayMinutes = typeof line.delay === "number" ? line.delay : 0;
-                                baseTime += delayMinutes * 60000;
+                                
+                                // Enforce a minimum 2-minute gap per message block if delay is 0, 
+                                // so Discord separates consecutive messages from the same author into individual blocks.
+                                const explicitDelay = typeof line.delay === "number" ? line.delay : 0;
+                                const gapMinutes = Math.max(explicitDelay, 2); 
+                                baseTime += gapMinutes * 60000;
 
                                 const senderId = line.sender === "me" ? myUserId : otherUserId;
                                 if (!senderId) continue;
