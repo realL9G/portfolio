@@ -60,7 +60,7 @@
         return null;
     }
 
-    async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId) {
+    async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId, stickerId) {
         const id = messageId || generateSnowflake(customTimestamp || new Date().toISOString());
         try {
             const currentUser = F.getCurrentUser() || j.getCurrentUser();
@@ -73,9 +73,21 @@
             }
 
             const timestamp = customTimestamp || new Date().toISOString();
+            
+            let stickersArray = [];
+            if (stickerId) {
+                stickersArray = [{
+                    id: String(stickerId),
+                    name: "Wumpus Hello",
+                    content_type: "image/png",
+                    format_type: 2, // Animated / Lottie or PNG format type
+                    type: 1
+                }];
+            }
+
             const messageData = {
                 id: id,
-                type: 0,
+                type: stickerId ? 6 : 0, // Type 6 represents sticker messages in Discord
                 channel_id: channelId,
                 author: {
                     id: userId,
@@ -84,7 +96,8 @@
                     avatar: user ? user.avatar : null,
                     bot: user ? user.bot : !1
                 },
-                content: content,
+                content: content || "",
+                stickers: stickersArray,
                 mentions: [],
                 mention_roles: [],
                 pinned: !1,
@@ -128,13 +141,14 @@
         e.storage._lastUpdate = Date.now();
     }
 
-    function addStoredMessage(channelId, userId, content, messageId, timestamp) {
+    function addStoredMessage(channelId, userId, content, messageId, timestamp, stickerId) {
         const messages = e.storage.savedMessages || [];
         messages.push({
             id: messageId,
             channelId: channelId,
             userId: userId,
             content: content,
+            stickerId: stickerId,
             timestamp: timestamp,
             createdAt: Date.now()
         });
@@ -145,7 +159,7 @@
         (e.storage.savedMessages || []).filter(function(msg) {
             return msg.channelId === channelId;
         }).forEach(function(msg) {
-            injectFakeMessage(msg.channelId, msg.userId, msg.content, msg.timestamp, msg.id);
+            injectFakeMessage(msg.channelId, msg.userId, msg.content, msg.timestamp, msg.id, msg.stickerId);
         });
     }
 
@@ -274,9 +288,9 @@
             const savedCount = (e.storage.savedMessages || []).length;
             
             const defaultScript = JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the trade?", delay: 0 },
-                { sender: "me", text: "Yeah, sending it over now.", delay: 1 },
-                { sender: "other", text: "Awesome, received! Pleasure doing business.", delay: 2 }
+                { sender: "other", text: "Hey, check out this sticker!", delay: 0 },
+                { sender: "other", stickerId: "761773777976819732", delay: 1 },
+                { sender: "me", text: "Haha, nice one!", delay: 2 }
             ], null, 2);
 
             const scriptInput = e.storage.scriptInput || defaultScript;
@@ -322,11 +336,9 @@
                             let channelId = null;
 
                             if (!isGroupDM) {
-                                // 1-on-1 mode: Simply use the channel you are CURRENTLY looking at. No lookups, no redirects!
                                 channelId = getCurrentChannelId();
                                 if (!channelId) return;
                             } else {
-                                // Group mode: fetch or create group DM channel and redirect
                                 if (!otherUserId) return;
                                 channelId = await getOrCreateGroupChannel(otherUserId);
                                 if (!channelId) return;
@@ -346,12 +358,13 @@
 
                                 const isoString = new Date(baseTime).toISOString();
                                 const snowflakeId = generateSnowflake(isoString);
+                                const stickerId = line.stickerId || null;
+                                const content = line.text || "";
 
-                                await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
-                                addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
+                                await injectFakeMessage(channelId, senderId, content, isoString, snowflakeId, stickerId);
+                                addStoredMessage(channelId, senderId, content, snowflakeId, isoString, stickerId);
                             }
 
-                            // Only redirect if it's explicitly a group DM
                             if (isGroupDM) {
                                 try {
                                     if (Navigation?.transitionTo) {
@@ -367,7 +380,7 @@
                     }, otherUserId ? `Target Status: ${foundOtherUser ? `Found (@${foundOtherUser.username})` : "ID Cached (User not fully loaded in cache)"} | Type: ${isGroupDM ? "Group Chat" : "1-on-1 DM"}` : "Status: No User ID provided yet."),
                     n.React.createElement(f, {
                         title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me', 'other', and 'delay' (in minutes) for each message",
+                        placeholder: "Define 'me', 'other', 'delay', and optional 'stickerId'",
                         value: scriptInput,
                         onChange: function(val) { e.storage.scriptInput = val || ""; },
                         multiline: !0
