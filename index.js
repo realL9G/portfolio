@@ -24,34 +24,65 @@
     async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-        
-        if (!isGroup) {
-            // Strict 1-on-1 DM search: channel type 1 and contains only that recipient
-            for (const channelId in dmChannels) {
-                const channel = dmChannels[channelId];
-                if (channel && channel.type === 1 && channel.recipients && channel.recipients.length === 1 && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
-            }
-        } else {
-            // Group DM search (type 3)
-            for (const channelId in dmChannels) {
-                const channel = dmChannels[channelId];
-                if (channel && channel.type === 3 && channel.recipients && channel.recipients.includes(targetUserId)) {
-                    return channel.id;
-                }
+        const targetType = isGroup ? 3 : 1;
+
+        // 1. Search existing channels matching the exact criteria
+        for (const channelId in dmChannels) {
+            const channel = dmChannels[channelId];
+            if (channel && channel.type === targetType && channel.recipients && channel.recipients.includes(targetUserId)) {
+                if (!isGroup && channel.recipients.length !== 1) continue; // Ensure strictly 1-on-1
+                return channel.id;
             }
         }
 
-        // Create new if not found
+        // 2. If not found, request opening via client actions
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                return await PrivateChannelActions.openPrivateChannel(targetUserId);
+                const arg = isGroup ? [targetUserId] : targetUserId;
+                const res = await PrivateChannelActions.openPrivateChannel(arg);
+                const channelId = typeof res === "string" ? res : (res?.id || res?.channelId);
+                
+                if (channelId) {
+                    const channel = ChannelStore.getChannel(channelId);
+                    if (channel && channel.type === targetType) {
+                        if (!isGroup && channel.recipients?.length !== 1) {
+                            // Fallback scan if it accidentally returned a group
+                            for (const cId in dmChannels) {
+                                const c = dmChannels[cId];
+                                if (c && c.type === 1 && c.recipients?.length === 1 && c.recipients.includes(targetUserId)) {
+                                    return c.id;
+                                }
+                            }
+                        } else {
+                            return channel.id;
+                        }
+                    }
+                    if (!isGroup && channel?.type === 3) {
+                        // Skip returning group if 1-on-1 was requested, scan storage/store again
+                        for (const cId in dmChannels) {
+                            const c = dmChannels[cId];
+                            if (c && c.type === 1 && c.recipients?.length === 1 && c.recipients.includes(targetUserId)) {
+                                return c.id;
+                            }
+                        }
+                    }
+                    return channelId;
+                }
             } catch (err) {
                 console.error("Failed to open private channel:", err);
-                return null;
             }
         }
+
+        // 3. Final fallback scan
+        const updatedChannels = ChannelStore?.getPrivateChannels?.() || {};
+        for (const channelId in updatedChannels) {
+            const channel = updatedChannels[channelId];
+            if (channel && channel.type === targetType && channel.recipients?.includes(targetUserId)) {
+                if (!isGroup && channel.recipients.length !== 1) continue;
+                return channel.id;
+            }
+        }
+
         return null;
     }
 
@@ -263,7 +294,7 @@
             const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
             const [isGroupDM, setIsGroupDM] = n.React.useState(e.storage.isGroupDM || !1);
             const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput || JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the trade nig?" },
+                { sender: "other", text: "Hey, are you ready for the trade?" },
                 { sender: "me", text: "Yeah, sending it over now." },
                 { sender: "other", text: "Awesome, received! Pleasure doing business." }
             ], null, 2));
