@@ -44,7 +44,6 @@
     async function injectFakeMessage(channelId, userId, content, customTimestamp, messageId) {
         const id = messageId || generateSnowflake(customTimestamp || new Date().toISOString());
         try {
-            // Dynamically query user fresh every time to avoid stale profile caching
             const currentUser = F.getCurrentUser();
             let user = null;
             
@@ -61,7 +60,7 @@
                 channel_id: channelId,
                 author: {
                     id: userId,
-                    username: user ? user.username : (userId === otherUserIdCache ? "TargetUser" : "User"),
+                    username: user ? user.username : "TargetUser",
                     discriminator: user ? user.discriminator : "0001",
                     avatar: user ? user.avatar : null,
                     bot: user ? user.bot : !1
@@ -139,7 +138,6 @@
     let channelSelectSub = null;
     let patches = [];
     let dispatchUnpatch = null;
-    let otherUserIdCache = "";
 
     var PluginModule = {
         onLoad() {
@@ -248,20 +246,15 @@
         },
 
         settings: function() {
-            const myUserId = F.getCurrentUser()?.id || "";
-            const otherUserId = e.storage.otherUserId || "";
-            otherUserIdCache = otherUserId;
-            
-            const foundOtherUser = otherUserId ? (F.getUser(otherUserId) || j.getUser(otherUserId)) : null;
-            const savedCount = (e.storage.savedMessages || []).length;
-            
-            const defaultScript = JSON.stringify([
+            const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
+            const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput || JSON.stringify([
                 { sender: "other", text: "Hey, are you ready for the trade?" },
                 { sender: "me", text: "Yeah, sending it over now." },
                 { sender: "other", text: "Awesome, received! Pleasure doing business." }
-            ], null, 2);
+            ], null, 2));
 
-            const scriptInput = e.storage.scriptInput || defaultScript;
+            const foundOtherUser = otherUserId ? (F.getUser(otherUserId) || j.getUser(otherUserId)) : null;
+            const savedCount = (e.storage.savedMessages || []).length;
 
             return n.React.createElement(v.Forms.Form, {},
                 n.React.createElement(N, { title: "Automated DM Conversation Generator" },
@@ -270,8 +263,10 @@
                         placeholder: "Enter the user ID of the other person",
                         value: otherUserId,
                         onChange: function(val) { 
-                            e.storage.otherUserId = val || ""; 
-                            otherUserIdCache = val || "";
+                            const textVal = typeof val === "object" ? (val?.nativeEvent?.text || val?.target?.value || "") : (val || "");
+                            const trimmed = textVal.trim();
+                            setOtherUserId(trimmed);
+                            e.storage.otherUserId = trimmed;
                         },
                         helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found in cache (open their profile/DM once first)" : "Long-press a user to grab ID"
                     }),
@@ -279,29 +274,42 @@
                         title: "Conversation Script (JSON Table)",
                         placeholder: "Define 'me' and 'other' script messages",
                         value: scriptInput,
-                        onChange: function(val) { e.storage.scriptInput = val || ""; },
+                        onChange: function(val) { 
+                            const textVal = typeof val === "object" ? (val?.nativeEvent?.text || val?.target?.value || "") : (val || "");
+                            setScriptInput(textVal);
+                            e.storage.scriptInput = textVal; 
+                        },
                         multiline: !0
                     }),
                     n.React.createElement(A, {
                         label: "Play Out Full Conversation",
-                        subLabel: `${savedCount} messages saved locally | Resolves DM and injects script sequence`,
+                        subLabel: `${savedCount} messages saved locally | Target: ${otherUserId || "None"}`,
                         onPress: async function() {
-                            if (!otherUserId) return;
+                            const targetId = otherUserId || e.storage.otherUserId;
+                            if (!targetId) {
+                                window.alert("Error: Please provide a target User ID first.");
+                                return;
+                            }
 
-                            const channelId = await getOrCreateDMChannel(otherUserId);
-                            if (!channelId) return;
+                            const channelId = await getOrCreateDMChannel(targetId);
+                            if (!channelId) {
+                                window.alert("Error: Could not resolve DM channel for target ID.");
+                                return;
+                            }
 
                             let parsedScript;
                             try {
-                                parsedScript = JSON.parse(e.storage.scriptInput || defaultScript);
+                                parsedScript = JSON.parse(scriptInput || e.storage.scriptInput);
                             } catch (err) {
+                                window.alert("Error: Invalid JSON script format.");
                                 return;
                             }
 
                             let baseTime = new Date().getTime() - (parsedScript.length * 30000);
 
+                            const myUserId = F.getCurrentUser()?.id;
                             for (const line of parsedScript) {
-                                const senderId = line.sender === "me" ? myUserId : otherUserId;
+                                const senderId = line.sender === "me" ? myUserId : targetId;
                                 if (!senderId) continue;
 
                                 baseTime += 30000;
@@ -311,6 +319,9 @@
                                 await injectFakeMessage(channelId, senderId, line.text, isoString, snowflakeId);
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
+
+                            // Notification alert when done
+                            window.alert("Conversation playback complete!");
                         }
                     })
                 )
