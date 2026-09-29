@@ -1,7 +1,7 @@
 (function(U, n, l, v, e, y, B, k) {
     "use strict";
 
-    const { FormSection: N, FormInput: f, FormRow: A } = v.Forms;
+    const { FormSection: N, FormInput: f, FormRow: A, FormRadio: P } = v.Forms;
     const F = l.findByProps("getCurrentUser", "getUser");
     const O = l.findByProps("getChannel", "getChannelId");
     const $ = l.findByProps("getChannelId", "getLastSelectedChannelId");
@@ -22,21 +22,24 @@
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
     }
 
-    async function getOrCreateDMChannel(targetUserId, isGroup) {
+    async function getOrCreateDMChannel(targetUserId, mode) {
         if (!targetUserId) return null;
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
         
+        // mode: "dm" or "group"
+        const targetType = mode === "group" ? 3 : 1;
+
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
             if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
-                if (!isGroup && channel.type === 1) return channel.id;
-                if (isGroup && channel.type === 3) return channel.id;
+                if (channel.type === targetType) return channel.id;
             }
         }
 
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                const channelArg = isGroup ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
+                // If mode is DM, pass strictly the string ID. If group, pass the array.
+                const channelArg = mode === "group" ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
                 const res = await PrivateChannelActions.openPrivateChannel(channelArg);
                 return typeof res === "string" ? res : (res?.id || res?.channelId || null);
             } catch (err) {
@@ -253,9 +256,9 @@
         },
 
         settings: function() {
+            const [channelMode, setChannelMode] = n.React.useState(e.storage.channelMode || "dm");
             const myUserId = F.getCurrentUser()?.id || "";
             const otherUserId = e.storage.otherUserId || "";
-            const isGroupDM = e.storage.isGroupDM || !1;
             otherUserIdCache = otherUserId;
             
             const foundOtherUser = otherUserId ? (F.getUser(otherUserId) || j.getUser(otherUserId)) : null;
@@ -281,26 +284,26 @@
                         },
                         helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found in cache (open their profile/DM once first)" : "Long-press a user to grab ID"
                     }),
-                    n.React.createElement(A, {
-                        label: "Create as Fake Group DM",
-                        subLabel: "Check this box to route the conversation to a group chat channel instead of a direct 1-on-1 DM.",
-                        trailing: n.React.createElement(v.Forms.FormCheckbox, {
-                            value: isGroupDM,
-                            onValueChange: function(val) {
-                                e.storage.isGroupDM = val;
+                    n.React.createElement(N, { title: "Channel Mode" },
+                        n.React.createElement(P, {
+                            options: [
+                                { name: "Direct Message (1-on-1)", value: "dm", desc: "Open or use a standard 1-on-1 DM channel." },
+                                { name: "Group DM", value: "group", desc: "Route or create a group chat channel instead." }
+                            ],
+                            selected: channelMode,
+                            onSelect: function(val) {
+                                setChannelMode(val);
+                                e.storage.channelMode = val;
                             }
-                        }),
-                        onPress: function() {
-                            e.storage.isGroupDM = !isGroupDM;
-                        }
-                    }),
+                        })
+                    ),
                     n.React.createElement(A, {
                         label: "Play Out Full Conversation",
-                        subLabel: `${savedCount} messages saved locally | Resolves DM and injects script sequence`,
+                        subLabel: `${savedCount} messages saved locally | Generates and redirects`,
                         onPress: async function() {
                             if (!otherUserId) return;
 
-                            const channelId = await getOrCreateDMChannel(otherUserId, e.storage.isGroupDM);
+                            const channelId = await getOrCreateDMChannel(otherUserId, channelMode);
                             if (!channelId) return;
 
                             let parsedScript;
@@ -324,7 +327,6 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
-                            // Redirect to the channel immediately after generating
                             try {
                                 if (Navigation?.transitionTo) {
                                     Navigation.transitionTo(`/channels/@me/${channelId}`);
