@@ -24,65 +24,29 @@
     async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
         const dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-        const targetType = isGroup ? 3 : 1;
-
-        // Helper to check if a channel has the target user as a recipient (supports both string IDs and user objects)
-        const hasRecipient = (channel) => {
-            if (!channel.recipients) return false;
-            return channel.recipients.some(r => r === targetUserId || r?.id === targetUserId);
-        };
-
-        // 1. Search existing channels in store with exact type and recipient match
+        
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
-            if (!channel) continue;
-
-            if (channel.type === targetType && hasRecipient(channel)) {
-                // If 1-on-1 DM, make sure it doesn't have multiple recipients
-                if (!isGroup && channel.recipients.length > 1) continue;
-                return channel.id;
+            if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
+                // If group option is off, make sure we match a 1-on-1 DM (type 1 or single recipient)
+                if (!isGroup && channel.type === 1) return channel.id;
+                // If group option is on, match group DM (type 3)
+                if (isGroup && channel.type === 3) return channel.id;
             }
         }
 
-        // 2. Open via private channel actions if not found
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                const res = await PrivateChannelActions.openPrivateChannel(targetUserId);
-                const channelId = typeof res === "string" ? res : (res?.id || res?.channelId);
-                if (channelId) {
-                    const channel = ChannelStore.getChannel(channelId);
-                    if (channel && channel.type === targetType) {
-                        if (!isGroup && channel.recipients?.length > 1) {
-                            // If a group was returned by accident, scan for a true 1-on-1 channel instead
-                            for (const cId in dmChannels) {
-                                const c = dmChannels[cId];
-                                if (c && c.type === 1 && c.recipients?.length === 1 && hasRecipient(c)) {
-                                    return c.id;
-                                }
-                            }
-                        } else {
-                            return channel.id;
-                        }
-                    }
-                    return channelId;
-                }
+                // Native openPrivateChannel with a string always opens a 1-on-1 DM
+                // Passing an array creates/opens a group DM layout
+                const channelArg = isGroup ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
+                const res = await PrivateChannelActions.openPrivateChannel(channelArg);
+                return typeof res === "string" ? res : (res?.id || res?.channelId || null);
             } catch (err) {
                 console.error("Failed to open private channel:", err);
+                return null;
             }
         }
-
-        // 3. Final fallback scan across store
-        const updatedChannels = ChannelStore?.getPrivateChannels?.() || {};
-        for (const channelId in updatedChannels) {
-            const channel = updatedChannels[channelId];
-            if (!channel) continue;
-
-            if (channel.type === targetType && hasRecipient(channel)) {
-                if (!isGroup && channel.recipients.length > 1) continue;
-                return channel.id;
-            }
-        }
-
         return null;
     }
 
@@ -105,7 +69,7 @@
                 channel_id: channelId,
                 author: {
                     id: userId,
-                    username: user ? user.username : "TargetUser",
+                    username: user ? user.username : (userId === otherUserIdCache ? "TargetUser" : "User"),
                     discriminator: user ? user.discriminator : "0001",
                     avatar: user ? user.avatar : null,
                     bot: user ? user.bot : !1
@@ -183,6 +147,7 @@
     let channelSelectSub = null;
     let patches = [];
     let dispatchUnpatch = null;
+    let otherUserIdCache = "";
 
     var PluginModule = {
         onLoad() {
@@ -291,16 +256,21 @@
         },
 
         settings: function() {
-            const [otherUserId, setOtherUserId] = n.React.useState(e.storage.otherUserId || "");
-            const [isGroupDM, setIsGroupDM] = n.React.useState(e.storage.isGroupDM || !1);
-            const [scriptInput, setScriptInput] = n.React.useState(e.storage.scriptInput || JSON.stringify([
-                { sender: "other", text: "Hey, are you ready for the tradeyyy?" },
-                { sender: "me", text: "Yeah, sending it over now." },
-                { sender: "other", text: "Awesome, received! Pleasure doing business." }
-            ], null, 2));
-
+            const myUserId = F.getCurrentUser()?.id || "";
+            const otherUserId = e.storage.otherUserId || "";
+            const isGroupDM = e.storage.isGroupDM || !1;
+            otherUserIdCache = otherUserId;
+            
             const foundOtherUser = otherUserId ? (F.getUser(otherUserId) || j.getUser(otherUserId)) : null;
             const savedCount = (e.storage.savedMessages || []).length;
+            
+            const defaultScript = JSON.stringify([
+                { sender: "other", text: "Hey, are you ready for the trade?" },
+                { sender: "me", text: "Yeah, sending it over now." },
+                { sender: "other", text: "Awesome, received! Pleasure doing business." }
+            ], null, 2);
+
+            const scriptInput = e.storage.scriptInput || defaultScript;
 
             return n.React.createElement(v.Forms.Form, {},
                 n.React.createElement(N, { title: "Automated DM Conversation Generator" },
@@ -309,51 +279,51 @@
                         placeholder: "Enter the user ID of the other person",
                         value: otherUserId,
                         onChange: function(val) { 
-                            const textVal = typeof val === "object" ? (val?.nativeEvent?.text || val?.target?.value || "") : (val || "");
-                            const trimmed = textVal.trim();
-                            setOtherUserId(trimmed);
-                            e.storage.otherUserId = trimmed;
+                            e.storage.otherUserId = val || ""; 
+                            otherUserIdCache = val || "";
                         },
                         helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found in cache (open their profile/DM once first)" : "Long-press a user to grab ID"
                     }),
                     n.React.createElement(A, {
                         label: "Create as Fake Group DM",
-                        subLabel: "Check this box if you want the conversation routed to a group chat channel instead of a direct 1-on-1 DM.",
+                        subLabel: "Check this box to route the conversation to a group chat channel instead of a direct 1-on-1 DM.",
                         trailing: n.React.createElement(v.Forms.FormCheckbox, {
                             value: isGroupDM,
                             onValueChange: function(val) {
-                                setIsGroupDM(val);
                                 e.storage.isGroupDM = val;
                             }
                         }),
                         onPress: function() {
-                            const newVal = !isGroupDM;
-                            setIsGroupDM(newVal);
-                            e.storage.isGroupDM = newVal;
+                            e.storage.isGroupDM = !isGroupDM;
                         }
+                    }),
+                    n.React.createElement(f, {
+                        title: "Conversation Script (JSON Table)",
+                        placeholder: "Define 'me' and 'other' script messages",
+                        value: scriptInput,
+                        onChange: function(val) { e.storage.scriptInput = val || ""; },
+                        multiline: !0
                     }),
                     n.React.createElement(A, {
                         label: "Play Out Full Conversation",
-                        subLabel: `${savedCount} messages saved locally | Target: ${otherUserId || "None"} (${isGroupDM ? "Group" : "DM"})`,
+                        subLabel: `${savedCount} messages saved locally | Resolves DM and injects script sequence`,
                         onPress: async function() {
-                            const targetId = otherUserId || e.storage.otherUserId;
-                            if (!targetId) return;
+                            if (!otherUserId) return;
 
-                            const channelId = await getOrCreateDMChannel(targetId, isGroupDM);
+                            const channelId = await getOrCreateDMChannel(otherUserId, e.storage.isGroupDM);
                             if (!channelId) return;
 
                             let parsedScript;
                             try {
-                                parsedScript = JSON.parse(scriptInput || e.storage.scriptInput);
+                                parsedScript = JSON.parse(e.storage.scriptInput || defaultScript);
                             } catch (err) {
                                 return;
                             }
 
                             let baseTime = new Date().getTime() - (parsedScript.length * 30000);
 
-                            const myUserId = F.getCurrentUser()?.id;
                             for (const line of parsedScript) {
-                                const senderId = line.sender === "me" ? myUserId : targetId;
+                                const senderId = line.sender === "me" ? myUserId : otherUserId;
                                 if (!senderId) continue;
 
                                 baseTime += 30000;
@@ -364,17 +334,6 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
                         }
-                    }),
-                    n.React.createElement(f, {
-                        title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me' and 'other' script messages",
-                        value: scriptInput,
-                        onChange: function(val) { 
-                            const textVal = typeof val === "object" ? (val?.nativeEvent?.text || val?.target?.value || "") : (val || "");
-                            setScriptInput(textVal);
-                            e.storage.scriptInput = textVal; 
-                        },
-                        multiline: !0
                     })
                 )
             );
