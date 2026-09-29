@@ -56,21 +56,13 @@
             }
         }
 
-        // 2. If it's a 1-on-1 DM and doesn't exist, we strictly enforce single user ID handling
+        // 2. If it's a 1-on-1 DM and NOT cached, do NOT call openPrivateChannel (which triggers the group bug). 
+        // Instead, fallback to finding channel via UserStore or let Discord handle it natively via navigation route.
         if (!isGroup) {
-            if (PrivateChannelActions?.openPrivateChannel) {
-                try {
-                    const res = await PrivateChannelActions.openPrivateChannel(targetUserId);
-                    const resolvedId = typeof res === "string" ? res : (res?.id || res?.channelId);
-                    if (resolvedId) return resolvedId;
-                } catch (err) {
-                    console.error("Failed to open 1-on-1 private channel:", err);
-                }
-            }
-            return null; // NEVER create a group if isGroup is false
+            return null; 
         }
 
-        // 3. Only if group mode is explicitly TRUE do we pass the array to create a group DM
+        // 3. Only if group mode is explicitly TRUE do we call the group creator
         if (isGroup && PrivateChannelActions?.openPrivateChannel) {
             try {
                 const res = await PrivateChannelActions.openPrivateChannel([targetUserId, myId]);
@@ -344,11 +336,21 @@
                             const myUserId = currentUserObj?.id;
                             if (!myUserId) return;
 
-                            const channelId = await getOrCreateDMChannel(otherUserId, isGroupDM);
-                            if (!channelId) {
-                                console.error("Could not find or open a valid DM channel without creating a group.");
+                            let channelId = await getOrCreateDMChannel(otherUserId, isGroupDM);
+                            
+                            // If it's a 1-on-1 DM and wasn't pre-cached, just open the user profile or let user navigate manually 
+                            // to prevent Discord from executing the group bug. Or open via user profile route if available.
+                            if (!channelId && !isGroupDM) {
+                                try {
+                                    // Navigate to the user's direct messages route if supported by discord router
+                                    if (Navigation?.transitionTo) {
+                                        Navigation.transitionTo(`/channels/@me`);
+                                    }
+                                } catch {}
                                 return;
                             }
+
+                            if (!channelId) return;
 
                             const parsedScript = parseJSONSafely(e.storage.scriptInput || defaultScript);
                             if (!Array.isArray(parsedScript)) return;
@@ -369,7 +371,6 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
-                            // Only redirect if it's explicitly a group DM
                             if (isGroupDM) {
                                 try {
                                     if (Navigation?.transitionTo) {
