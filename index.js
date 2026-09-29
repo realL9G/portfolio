@@ -22,36 +22,45 @@
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
     }
 
+    // Safe JSON parser that strips trailing commas so user typos never break it
+    function parseJSONSafely(str) {
+        try {
+            return JSON.parse(str);
+        } catch (err1) {
+            try {
+                const cleaned = str.replace(/,\s*([\]}])/g, '$1');
+                return JSON.parse(cleaned);
+            } catch (err2) {
+                console.error("Failed to parse conversation script JSON:", err2);
+                return null;
+            }
+        }
+    }
+
     async function getOrCreateDMChannel(targetUserId, isGroup) {
         if (!targetUserId) return null;
-        const targetType = isGroup ? 3 : 1;
-        
-        // 1. Check existing cached channels first
         let dmChannels = ChannelStore?.getPrivateChannels?.() || {};
+        
+        // Check existing cached channels first
         for (const channelId in dmChannels) {
             const channel = dmChannels[channelId];
-            if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
-                if (channel.type === targetType) return channel.id;
+            if (channel && channel.recipients) {
+                if (!isGroup && channel.type === 1 && channel.recipients.length === 1 && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
+                if (isGroup && channel.type === 3 && channel.recipients.includes(targetUserId)) {
+                    return channel.id;
+                }
             }
         }
 
-        // 2. Trigger native open action if not found
+        // Open via native action if not cached
         if (PrivateChannelActions?.openPrivateChannel) {
             try {
-                if (isGroup) {
-                    await PrivateChannelActions.openPrivateChannel([targetUserId, F.getCurrentUser()?.id]);
-                } else {
-                    await PrivateChannelActions.openPrivateChannel(targetUserId);
-                }
-                
-                // 3. Re-scan channel store immediately to fetch the newly created channel ID
-                dmChannels = ChannelStore?.getPrivateChannels?.() || {};
-                for (const channelId in dmChannels) {
-                    const channel = dmChannels[channelId];
-                    if (channel && channel.recipients && channel.recipients.includes(targetUserId)) {
-                        if (channel.type === targetType) return channel.id;
-                    }
-                }
+                const arg = isGroup ? [targetUserId, F.getCurrentUser()?.id] : targetUserId;
+                const res = await PrivateChannelActions.openPrivateChannel(arg);
+                const resolvedId = typeof res === "string" ? res : (res?.id || res?.channelId);
+                if (resolvedId) return resolvedId;
             } catch (err) {
                 console.error("Failed to open private channel:", err);
             }
@@ -320,14 +329,9 @@
                             const channelId = await getOrCreateDMChannel(otherUserId, isGroupDM);
                             if (!channelId) return;
 
-                            let parsedScript;
-                            try {
-                                parsedScript = JSON.parse(e.storage.scriptInput || defaultScript);
-                            } catch (err) {
-                                return;
-                            }
+                            const parsedScript = parseJSONSafely(e.storage.scriptInput || defaultScript);
+                            if (!Array.isArray(parsedScript)) return;
 
-                            // Calculate timestamps dynamically based on the 'delay' property (in minutes)
                             let baseTime = Date.now() - (parsedScript.length * 60000);
 
                             for (const line of parsedScript) {
