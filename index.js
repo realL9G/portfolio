@@ -11,6 +11,9 @@
     const j = l.findByStoreName("UserStore");
     const R = l.findByProps("sendMessage", "startEditMessage", "editMessage");
     
+    // Discord Native Toast module for mobile popups
+    const Toasts = l.findByProps("showToast", "openToast") || l.findByModules("showToast")[0];
+
     const ChannelStore = l.findByStoreName("ChannelStore");
     const PrivateChannelActions = l.findByProps("openPrivateChannel") || l.findByModules("openPrivateChannel")[0];
     
@@ -19,6 +22,20 @@
 
     function generateSnowflake(timestamp) {
         return ((new Date(timestamp).getTime() - 14200704e5) * 4194304).toString();
+    }
+
+    function showNotification(message) {
+        try {
+            if (Toasts?.showToast) {
+                Toasts.showToast({
+                    message: message,
+                    id: Date.now()
+                });
+                return;
+            }
+        } catch {}
+        // Fallback console log if native toast isn't available
+        console.log("[DM Generator]: " + message);
     }
 
     async function getOrCreateDMChannel(targetUserId) {
@@ -270,30 +287,19 @@
                         },
                         helperText: foundOtherUser ? `User: ${foundOtherUser.username}` : otherUserId ? "User not found in cache (open their profile/DM once first)" : "Long-press a user to grab ID"
                     }),
-                    n.React.createElement(f, {
-                        title: "Conversation Script (JSON Table)",
-                        placeholder: "Define 'me' and 'other' script messages",
-                        value: scriptInput,
-                        onChange: function(val) { 
-                            const textVal = typeof val === "object" ? (val?.nativeEvent?.text || val?.target?.value || "") : (val || "");
-                            setScriptInput(textVal);
-                            e.storage.scriptInput = textVal; 
-                        },
-                        multiline: !0
-                    }),
                     n.React.createElement(A, {
                         label: "Play Out Full Conversation",
                         subLabel: `${savedCount} messages saved locally | Target: ${otherUserId || "None"}`,
                         onPress: async function() {
                             const targetId = otherUserId || e.storage.otherUserId;
                             if (!targetId) {
-                                window.alert("Error: Please provide a target User ID first.");
+                                showNotification("Error: Please provide a target User ID first.");
                                 return;
                             }
 
                             const channelId = await getOrCreateDMChannel(targetId);
                             if (!channelId) {
-                                window.alert("Error: Could not resolve DM channel for target ID.");
+                                showNotification("Error: Could not resolve DM channel for target ID.");
                                 return;
                             }
 
@@ -301,7 +307,7 @@
                             try {
                                 parsedScript = JSON.parse(scriptInput || e.storage.scriptInput);
                             } catch (err) {
-                                window.alert("Error: Invalid JSON script format.");
+                                showNotification("Error: Invalid JSON script format.");
                                 return;
                             }
 
@@ -320,9 +326,19 @@
                                 addStoredMessage(channelId, senderId, line.text, snowflakeId, isoString);
                             }
 
-                            // Notification alert when done
-                            window.alert("Conversation playback complete!");
+                            showNotification("Conversation playback complete!");
                         }
+                    }),
+                    n.React.createElement(f, {
+                        title: "Conversation Script (JSON Table)",
+                        placeholder: "Define 'me' and 'other' script messages",
+                        value: scriptInput,
+                        onChange: function(val) { 
+                            const textVal = typeof val === "object" ? (val?.nativeEvent?.text || val?.target?.value || "") : (val || "");
+                            setScriptInput(textVal);
+                            e.storage.scriptInput = textVal; 
+                        },
+                        multiline: !0
                     })
                 )
             );
